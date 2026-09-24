@@ -117,8 +117,31 @@ export class LendingLibrary {
    *    BAD_REQ: no words in search
    */
   findBooks(req: Record<string, any>) : Errors.Result<XBook[]> {
-    //TODO
-    return Errors.errResult('TODO');  //placeholder
+    const search = req.search;
+    if (search === undefined) {
+      return Errors.errResult('property search is required',
+                              { code: 'MISSING', widget: 'search' });
+    }
+    if (typeof search !== 'string') {
+      return Errors.errResult('property search must be a string',
+                              { code: 'BAD_TYPE', widget: 'search' });
+    }
+    const words = extractWords(search);
+    if (words.length === 0) {
+      return Errors.errResult('search must contain at least one word',
+                              { code: 'BAD_REQ', widget: 'search' });
+    }
+
+    // one set of ISBNs per search word; a never-indexed word matches nothing
+    const matchSets = words.map(w => this.wordIndex[w] ?? new Set<ISBN>());
+
+    // keep an ISBN only if every word's set contains it
+    const [first, ...rest] = matchSets;
+    const isbns = [...first].filter(isbn => rest.every(s => s.has(isbn)));
+
+    const books = isbns.map(isbn => this.books[isbn]);
+    books.sort((a, b) => a.title.localeCompare(b.title));
+    return Errors.okResult(books);
   }
 
 

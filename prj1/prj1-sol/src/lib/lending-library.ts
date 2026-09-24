@@ -153,8 +153,27 @@ export class LendingLibrary {
    *    BAD_REQ error on business rule violation.
    */
   checkoutBook(req: Record<string, any>) : Errors.Result<void> {
-    //TODO
-    return Errors.errResult('TODO');  //placeholder
+	  const validateResult = validatePatronBookReq(req);
+	  if(!validateResult.isOk) return validateResult;
+	  const {patronId, isbn} = validateResult.val;
+
+	  const book = this.books[isbn];
+	  if(!book) {
+		  return Errors.errResult(`unknown book ${isbn}`, {
+			  code: 'BAD_REQ', widget: 'isbn' });
+	  }
+	  const checkedOutBy = this.checkouts[isbn] ??= new Set<PatronId>();
+	  if(checkedOutBy.has(patronId)) {
+		  return Errors.errResult(`Patron ${patronId} has already checked out book ${isbn}`, 
+					  {code: 'BAD_REQ', widget: 'isbn' });
+	  }
+	  if (checkedOutBy.size >= book.nCopies) {
+		  return Errors.errResult(`There are no copies of the book ${isbn} available to check out`, 
+					  {code: 'BAD_REQ', widget: 'isbn'});
+	  }
+	  checkedOutBy.add(patronId);
+	  (this.patronBooks[patronId] ??= new Set<ISBN>()).add(isbn);
+	  return Errors.VOID_RESULT;
   }
 
   /** Set up patron req.patronId to returns book req.isbn.
@@ -165,10 +184,19 @@ export class LendingLibrary {
    *    BAD_REQ error on business rule violation.
    */
   returnBook(req: Record<string, any>) : Errors.Result<void> {
-    //TODO 
-    return Errors.errResult('TODO');  //placeholder
+	  const validateResult = validatePatronBookReq(req);
+	  if (!validateResult.isOk) return validateResult;
+	  const {patronId, isbn} = validateResult.val;
+
+	  const checkedOutBy = this.checkouts[isbn];
+	  if(!checkedOutBy || !checkedOutBy.has(patronId)) {
+		  return Errors.errResult(`Patron ${patronId} has not checked out the book ${isbn}`,
+					  {code: 'BAD_REQ', widget: 'isbn'});
+	  }
+	  checkedOutBy.delete(patronId);
+	  this.patronBooks[patronId]?.delete(isbn);
+	  return Errors.VOID_RESULT;
   }
-  
 }
 
 
@@ -254,6 +282,26 @@ function validateAddBookReq(req: Record<string, any>): Errors.Result<Book> {
     ...(req.nCopies !== undefined ? { nCopies: req.nCopies } : {}),
   };
   return Errors.okResult(book);
+}
+
+function validatePatronBookReq(req: Record<string, any>):Errors.Result<{patronId: PatronId; isbn: ISBN}>
+{
+	const errors: Errors.Err[] = [];
+	for (const f of ['patronId', 'isbn'] as const) {
+		if(req[f] === undefined) {
+			errors.push(new Errors.Err(`${f} is required`, {code: 'MISSING', widget: f,}));
+		}
+	}
+	if(errors.length > 0) return new Errors.ErrResult(errors);
+
+	for (const f of ['patronId', 'isbn'] as const) {
+		if(typeof req[f] !== 'string') {
+			errors.push(new Errors.Err(`${f} must be a string`, {code: 'BAD_TYPE', widget: f,}));
+		}
+	}
+	if(errors.length > 0) return new Errors.ErrResult(errors);
+
+	return Errors.okResult({patronId: req.patronId, isbn: req.isbn});
 }
 
 /********************* General Utility Functions ***********************/
